@@ -1,1 +1,4 @@
-python-telegram-bot>=13,<14\nurllib3<2\nsix\ncertifi\n
+python-telegram-bot>=13,<14
+urllib3<2
+six
+certifi

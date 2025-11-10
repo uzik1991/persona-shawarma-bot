@@ -92,7 +92,7 @@ def push(Ses, tag):
 def render_delivery(update,ctx):
     Ses=S(ctx); Ses.history=[]; push(Ses,"delivery")
     if update.message: update.message.reply_text("Меню знизу 👇", reply_markup=kb_persistent())
-    update.effective_chat.send_message(f"Вітаю, {update.effective_user.first_name}!\\nОбери: доставка або самовивіз.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚚 Доставка","ship:delivery")],[InlineKeyboardButton("🏃‍♀️ Самовивіз","ship:pickup")]]))
+    update.effective_chat.send_message(f"Вітаю, {update.effective_user.first_name}!\nОбери: доставка або самовивіз.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚚 Доставка","ship:delivery")],[InlineKeyboardButton("🏃‍♀️ Самовивіз","ship:pickup")]]))
 def render_addr(update,ctx):
     Ses=S(ctx); Ses.awaiting="addr"; push(Ses,"addr")
     update.effective_chat.send_message("Введіть адресу доставки:", reply_markup=ReplyKeyboardRemove())
@@ -103,7 +103,7 @@ def render_phone_choice(update,ctx):
     update.effective_chat.send_message(" ", reply_markup=kb_back())
 def render_phone_manual(update,ctx):
     Ses=S(ctx); Ses.awaiting="phone"; push(Ses,"phone")
-    update.effective_chat.send_message("Введіть номер у форматі: <b>+38 (xxx) - xxx - xx - xx</b>\\nНапр.: +38 (067) - 123 - 45 - 67", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove())
+    update.effective_chat.send_message("Введіть номер у форматі: <b>+38 (xxx) - xxx - xx - xx</b>\nНапр.: +38 (067) - 123 - 45 - 67", parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove())
     update.effective_chat.send_message(" ", reply_markup=kb_back())
 def render_home(update,ctx):
     Ses=S(ctx); push(Ses,"home")
@@ -139,7 +139,7 @@ def summarize(Ses):
     if Ses.comment: lines.append(f"Коментар: {Ses.comment}")
     lines.append(""); lines.append(f"Ціна: {total} грн")
     Ses.order_no = Ses.order_no or next_order_no()
-    return "Номер замовлення: "+Ses.order_no+"\\n\\n" + "\\n".join(lines)
+    return "Номер замовлення: "+Ses.order_no+"\n\n" + "\n".join(lines)
 def render_summary(update,ctx):
     Ses=S(ctx); push(Ses,"summary")
     update.effective_chat.send_message(summarize(Ses), reply_markup=kb_summary(), disable_web_page_preview=True)
@@ -159,12 +159,12 @@ def on_text(update,ctx):
         if o:
             reg=ORD(ctx).get(o)
             if reg and reg.get("user_chat_id"): 
-                ctx.bot.send_message(reg["user_chat_id"], f"📩 Повідомлення від адміністратора по {o}:\\n\\n{t}")
+                ctx.bot.send_message(reg["user_chat_id"], f"📩 Повідомлення від адміністратора по {o}:\n\n{t}")
                 return update.message.reply_text("Надіслано клієнту ✅")
     o=pop_user_dm(ctx, update.effective_chat.id)
     if o and ADMIN_CHAT_ID:
         u=update.effective_user
-        ctx.bot.send_message(ADMIN_CHAT_ID, f"📨 Повідомлення від клієнта по {o}\\n👤 {u.full_name} (id {u.id})\\n\\n{t}")
+        ctx.bot.send_message(ADMIN_CHAT_ID, f"📨 Повідомлення від клієнта по {o}\n👤 {u.full_name} (id {u.id})\n\n{t}")
         return update.message.reply_text("Надіслано адміну ✅")
     if t==PHONE_MANUAL_BTN: return render_phone_manual(update,ctx)
     if Ses.awaiting=="addr": Ses.address=t; Ses.awaiting=None; return render_phone_choice(update,ctx)
@@ -234,9 +234,9 @@ def finalize(update,ctx):
     admin_msg_id=None
     if ADMIN_CHAT_ID:
         u=update.effective_user
-        m=ctx.bot.send_message(ADMIN_CHAT_ID, f"🆕 Нове замовлення {o}\\n🕒 {ts}\\n👤 Клієнт: {u.full_name} (id {u.id})\\n\\n{summ}\\n\\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_admin(o))
+        m=ctx.bot.send_message(ADMIN_CHAT_ID, f"🆕 Нове замовлення {o}\n🕒 {ts}\n👤 Клієнт: {u.full_name} (id {u.id})\n\n{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_admin(o))
         admin_msg_id=m.message_id
-    m2=update.effective_chat.send_message(f"{summ}\\n\\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
+    m2=update.effective_chat.send_message(f"{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
     ORD(ctx)[o]={"user_chat_id":update.effective_chat.id, "user_status_msg_id":m2.message_id, "admin_msg_id":admin_msg_id or 0, "summary":summ}
 def on_order(update,ctx):
     ack(update); 
@@ -246,12 +246,12 @@ def on_admin_status(update,ctx):
     if update.effective_user.id!=ADMIN_CHAT_ID: return update.callback_query.answer("Недостатньо прав", show_alert=True)
     _,o,action=update.callback_query.data.split(":",2)
     mp={"accept":"🟢 Прийнято","cooking":"👨‍🍳 Готуємо","courier":"🚴 Курʼєр в дорозі","done":"✅ Готово"}; st=mp.get(action,"🟡 Нове"); ts=now_str()
-    base=update.callback_query.message.text.split("\\n\\nСтатус:",1)[0]
-    update.callback_query.edit_message_text(base+f"\\n\\nСтатус: {st} — {ts}", reply_markup=kb_admin(o))
+    base=update.callback_query.message.text.split("\n\nСтатус:",1)[0]
+    update.callback_query.edit_message_text(base+f"\n\nСтатус: {st} — {ts}", reply_markup=kb_admin(o))
     reg=ORD(ctx).get(o)
     if reg:
         try:
-            ctx.bot.edit_message_text(chat_id=reg["user_chat_id"], message_id=reg["user_status_msg_id"], text=f"{reg['summary']}\\n\\nСтатус: {st} — {ts}", reply_markup=kb_user(o))
+            ctx.bot.edit_message_text(chat_id=reg["user_chat_id"], message_id=reg["user_status_msg_id"], text=f"{reg['summary']}\n\nСтатус: {st} — {ts}", reply_markup=kb_user(o))
         except Exception as e: log.warning("edit user msg fail: %s", e)
         try:
             ctx.bot.send_message(reg["user_chat_id"], f"Статус вашого замовлення змінено на: {st} — {ts}")

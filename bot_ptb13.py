@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os, json, logging, datetime as dt
+import os, logging, datetime as dt
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
+
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, Contact
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, Contact, ParseMode
 )
 from telegram.ext import (
     Updater, CallbackContext, CommandHandler, CallbackQueryHandler,
     MessageHandler, Filters
 )
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN","").strip()
+TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 if not TOKEN:
     raise SystemExit("Set TELEGRAM_TOKEN env var")
-ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID","0") or "0")
-DONE_STICKER_FILE_ID = os.environ.get("DONE_STICKER_FILE_ID","").strip()
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0") or "0")
+DONE_STICKER_FILE_ID = os.environ.get("DONE_STICKER_FILE_ID", "").strip()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 log = logging.getLogger("shawarma-bot13")
@@ -40,15 +41,19 @@ SEQ_PATH="order_seq.json"
 def next_order_no() -> str:
     today = dt.datetime.now().strftime("%Y%m%d")
     seq = 0
-    if os.path.exists(SEQ_PATH):
-        try:
-            d = json.load(open(SEQ_PATH,"r",encoding="utf-8"))
+    try:
+        if os.path.exists(SEQ_PATH):
+            import json
+            with open(SEQ_PATH, "r", encoding="utf-8") as f:
+                d = json.load(f)
             if d.get("date")==today:
                 seq = int(d.get("seq",0))
-        except Exception:
-            pass
+    except Exception:
+        pass
     seq += 1
-    json.dump({"date":today,"seq":seq}, open(SEQ_PATH,"w",encoding="utf-8"))
+    import json
+    with open(SEQ_PATH, "w", encoding="utf-8") as f:
+        json.dump({"date":today,"seq":seq}, f)
     return f"T{today}-{seq:04d}"
 
 @dataclass
@@ -84,14 +89,12 @@ def pop_user_dm(ctx,user): ensure_globals(ctx); return ctx.bot_data["await_user_
 
 PHONE_SHARE_BTN="📱 Поділитись контактом"
 PHONE_MANUAL_BTN="Ввести вручну"
-def _digits(t:str)->str: return "".join(ch for ch in t if ch.isdigit())
-def format_phone_mask(text:str)->Optional[str]:
-    d=_digits(text)
-    if len(d)>=12 and d.startswith("38"):
-        core=d[2:12]
-        if len(core)==10:
-            return f"+38 ({core[0:3]}) - {core[3:6]} - {core[6:8]} - {core[8:10]}"
-    return None
+SHIP_DELIVERY="🚚 Доставка"
+SHIP_PICKUP="🏃‍♀️ Самовивіз"
+
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+
 def kb_phone_choice()->ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [[KeyboardButton(PHONE_SHARE_BTN, request_contact=True)],
@@ -99,16 +102,25 @@ def kb_phone_choice()->ReplyKeyboardMarkup:
         resize_keyboard=True, one_time_keyboard=True
     )
 
+def kb_ship_inline()->InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton(SHIP_DELIVERY,"ship:delivery")],
+                                 [InlineKeyboardButton(SHIP_PICKUP,"ship:pickup")]])
+
+def kb_ship_reply()->ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup([[SHIP_DELIVERY, SHIP_PICKUP]], resize_keyboard=True, one_time_keyboard=True)
+
 def kb_main()->InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌯 Шаурма",  callback_data="nav:shawarma")],
-        [InlineKeyboardButton("🍟 Сайди",   callback_data="nav:sides")],
-        [InlineKeyboardButton("🍰 Десерти", callback_data="nav:desserts")],
-        [InlineKeyboardButton("🥤 Напої",   callback_data="nav:drinks")],
-        [InlineKeyboardButton("🧺 Кошик",   callback_data="cart:open")],
+        [InlineKeyboardButton("🌯 Шаурма","nav:shawarma")],
+        [InlineKeyboardButton("🍟 Сайди","nav:sides")],
+        [InlineKeyboardButton("🍰 Десерти","nav:desserts")],
+        [InlineKeyboardButton("🥤 Напої","nav:drinks")],
+        [InlineKeyboardButton("🧺 Кошик","cart:open")],
     ])
+
 def kb_back()->InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад","nav:back")]])
+
 def kb_check(options:Dict, selected:Set[str], scope:str, cont=True)->InlineKeyboardMarkup:
     rows=[]
     for oid,meta in options.items():
@@ -119,23 +131,28 @@ def kb_check(options:Dict, selected:Set[str], scope:str, cont=True)->InlineKeybo
     if cont: rows.append([InlineKeyboardButton("Продовжити ▶️", f"{scope}:continue")])
     rows.append([InlineKeyboardButton("⬅️ Назад","nav:back")])
     return InlineKeyboardMarkup(rows)
-def kb_qty(scope:str,item_id:str)->InlineKeyboardMarkup:
+
+def kb_qty(scope,item_id):
     rows=[[InlineKeyboardButton(str(n), f"{scope}:qty:{item_id}:{n}") for n in (1,2,3)],
           [InlineKeyboardButton(str(n), f"{scope}:qty:{item_id}:{n}") for n in (4,5,6)],
           [InlineKeyboardButton(str(n), f"{scope}:qty:{item_id}:{n}") for n in (7,8,9)],
           [InlineKeyboardButton("⬅️ Назад","nav:back")]]
     return InlineKeyboardMarkup(rows)
-def kb_yesno(tag)->InlineKeyboardMarkup:
+
+def kb_yesno(tag):
     return InlineKeyboardMarkup([[InlineKeyboardButton("Так",f"{tag}:yes")],
                                  [InlineKeyboardButton("Ні",f"{tag}:no")],
                                  [InlineKeyboardButton("⬅️ Назад","nav:back")]])
-def kb_comment()->InlineKeyboardMarkup:
+
+def kb_comment():
     return InlineKeyboardMarkup([[InlineKeyboardButton("Пропустити","comment:skip")],
                                  [InlineKeyboardButton("⬅️ Назад","nav:back")]])
-def kb_summary()->InlineKeyboardMarkup:
+
+def kb_summary():
     return InlineKeyboardMarkup([[InlineKeyboardButton("Підтвердити ✅","order:confirm")],
                                  [InlineKeyboardButton("⬅️ Назад","nav:back")]])
-def kb_admin(order_no:str)->InlineKeyboardMarkup:
+
+def kb_admin(order_no):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("Прийняти 🟢",f"admin:{order_no}:accept")],
         [InlineKeyboardButton("Готуємо 👨‍🍳",f"admin:{order_no}:cooking")],
@@ -143,7 +160,8 @@ def kb_admin(order_no:str)->InlineKeyboardMarkup:
         [InlineKeyboardButton("Готово ✅",f"admin:{order_no}:done")],
         [InlineKeyboardButton("✉️ Написати клієнту", f"adminmsg:{order_no}")]
     ])
-def kb_user(order_no:str)->InlineKeyboardMarkup:
+
+def kb_user(order_no):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🆕 Нове замовлення","nav:restart")],
         [InlineKeyboardButton("✉️ Написати адміну", f"usermsg:{order_no}")]
@@ -154,47 +172,56 @@ def push(s:Session, tag:str):
         s.history.append(tag)
 
 def send_delivery_screen(ctx:CallbackContext, chat_id:int):
-    s = S(ctx); s.history=[]; push(s,"delivery")
-    text = "Обери: доставка або самовивіз."
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚚 Доставка","ship:delivery")],
-        [InlineKeyboardButton("🏃‍♀️ Самовивіз","ship:pickup")]
-    ])
-    ctx.bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)
-
-def render_delivery(update:Update, ctx:CallbackContext):
-    send_delivery_screen(ctx, update.effective_chat.id)
+    s=S(ctx)
+    s.history=[]; s.awaiting="ship"
+    ctx.bot.send_message(chat_id, "Обери спосіб отримання:", reply_markup=kb_ship_inline())
+    ctx.bot.send_message(chat_id, "Або скористайся кнопками нижче ⬇️", reply_markup=kb_ship_reply())
+    push(s,"delivery")
 
 def render_addr(update:Update, ctx:CallbackContext):
     s=S(ctx); s.awaiting="addr"; push(s,"addr")
     ctx.bot.send_message(update.effective_chat.id, "Введіть адресу доставки:", reply_markup=ReplyKeyboardRemove())
     ctx.bot.send_message(update.effective_chat.id, " ", reply_markup=kb_back())
-def render_phone(update:Update, ctx:CallbackContext, replace=True):
-    s=S(ctx); s.awaiting="phone"; push(s,"phone_wait")
-    ctx.bot.send_message(update.effective_chat.id, "Поділитись контактом або ввести номер вручну?", reply_markup=kb_back())
-    ctx.bot.send_message(
-        update.effective_chat.id,
-        "Натисни «Поділитись контактом» або введи у форматі:\n"
-        "<b>+38 (xxx) - xxx - xx - xx</b>\nНапр.: +38 (067) - 123 - 45 - 67",
+
+def _digits(t:str)->str: return "".join(ch for ch in t if ch.isdigit())
+def format_phone_mask(text:str)->Optional[str]:
+    d=_digits(text)
+    if len(d)>=12 and d.startswith("38"):
+        core=d[2:12]
+        if len(core)==10:
+            return f"+38 ({core[0:3]}) - {core[3:6]} - {core[6:8]} - {core[8:10]}"
+    return None
+
+def render_phone(update:Update, ctx:CallbackContext):
+    s=S(ctx); s.awaiting="phone"; push(s,"phone")
+    ctx.bot.send_message(update.effective_chat.id, "Поділитись контактом або ввести номер вручну?",
+                         reply_markup=kb_back())
+    ctx.bot.send_message(update.effective_chat.id,
+        "Натисни «Поділитись контактом» або введи у форматі:\n<b>+38 (xxx) - xxx - xx - xx</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=kb_phone_choice()
-    )
-def render_home(update:Update, ctx:CallbackContext, replace=True):
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(PHONE_SHARE_BTN, request_contact=True)],
+                                          [KeyboardButton(PHONE_MANUAL_BTN)]],
+                                         resize_keyboard=True, one_time_keyboard=True))
+
+def render_home(update:Update, ctx:CallbackContext):
     s=S(ctx); push(s,"home")
     ctx.bot.send_message(update.effective_chat.id, "Що бажаєте сьогодні?", reply_markup=kb_main())
+
 def render_select(update:Update, ctx:CallbackContext, scope:str, selected:Set[str], data:Dict):
     push(S(ctx), f"{scope}_select")
     ctx.bot.send_message(update.effective_chat.id, "Оберіть позиції (можна кілька):", reply_markup=kb_check(data, selected, scope))
+
 def render_qty(update:Update, ctx:CallbackContext, scope:str, seq:List[str], idx:int):
     push(S(ctx), f"{scope}_qty:{idx}")
-    item_id = seq[idx]
-    data = {"sw":SHAWARMA,"add":ADDONS,"sd":SIDES,"ds":DESSERTS,"dr":DRINKS}[scope]
-    item = data[item_id]
+    mapping={"sw":SHAWARMA,"add":ADDONS,"sd":SIDES,"ds":DESSERTS,"dr":DRINKS}
+    item_id = seq[idx]; item = mapping[scope][item_id]
     ctx.bot.send_message(update.effective_chat.id, f"Скільки «{item['name']}»?", reply_markup=kb_qty(scope,item_id))
+
 def render_comment(update:Update, ctx:CallbackContext):
     s=S(ctx); s.awaiting="comment"; push(s,"comment")
     ctx.bot.send_message(update.effective_chat.id, "Додати коментар? Надішліть текст або «Пропустити».", reply_markup=ReplyKeyboardRemove())
     ctx.bot.send_message(update.effective_chat.id, " ", reply_markup=kb_comment())
+
 def summarize(s:Session)->str:
     total=0; lines=["Замовлення:"]
     for k,v in s.b_sw.items(): lines.append(f"Шаурма {SHAWARMA[k]['name']} — {v} шт"); total+=SHAWARMA[k]['price']*v
@@ -211,6 +238,7 @@ def summarize(s:Session)->str:
     lines.append(""); lines.append(f"Ціна: {total} грн")
     s.order_no = s.order_no or next_order_no()
     return "Номер замовлення: "+s.order_no+"\n\n" + "\n".join(lines)
+
 def render_summary(update:Update, ctx:CallbackContext):
     s=S(ctx); push(s,"summary")
     ctx.bot.send_message(update.effective_chat.id, summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
@@ -220,59 +248,12 @@ def cmd_start(update:Update, ctx:CallbackContext):
     u=update.effective_user
     ctx.bot.send_message(update.effective_chat.id, f"Вітаю, {u.full_name}! 😊")
     send_delivery_screen(ctx, update.effective_chat.id)
+
 def cmd_menu(update:Update, ctx:CallbackContext):
     send_delivery_screen(ctx, update.effective_chat.id)
-def cmd_help(update:Update, ctx:CallbackContext):
-    ctx.bot.send_message(update.effective_chat.id, "Команди: /start, /menu")
 
-def on_contact(update:Update, ctx:CallbackContext):
-    s=S(ctx); c:Contact=update.message.contact
-    masked = format_phone_mask(c.phone_number or "")
-    if not masked:
-        return ctx.bot.send_message(update.effective_chat.id, "Не вдалося прочитати номер. Введіть вручну за маскою.")
-    s.phone = masked; s.awaiting=None
-    ctx.bot.send_message(update.effective_chat.id, f"Телефон збережено: {masked}")
-    render_home(update,ctx,False)
-
-def on_text(update:Update, ctx:CallbackContext):
-    ensure_globals(ctx)
-    if update.effective_user and update.effective_user.id==ADMIN_CHAT_ID:
-        order_no = pop_admin_dm(ctx, ADMIN_CHAT_ID)
-        if order_no:
-            reg = ORD(ctx).get(order_no)
-            if reg and reg.get("user_chat_id"):
-                ctx.bot.send_message(reg["user_chat_id"],
-                    f"📩 Повідомлення від адміністратора по {order_no}:\n\n{update.message.text}")
-                ctx.bot.send_message(update.effective_chat.id, "Надіслано клієнту ✅")
-                return
-    ou = update.effective_chat.id
-    order_no = pop_user_dm(ctx, ou)
-    if order_no and ADMIN_CHAT_ID:
-        u = update.effective_user
-        ctx.bot.send_message(ADMIN_CHAT_ID,
-            f"📨 Повідомлення від клієнта по {order_no}\n"
-            f"👤 {u.full_name} (id {u.id})\n\n{update.message.text}")
-        ctx.bot.send_message(update.effective_chat.id, "Надіслано адміну ✅")
-        return
-    s=S(ctx); txt=(update.message.text or "").strip()
-    if txt==PHONE_MANUAL_BTN and s.awaiting=="phone":
-        return ctx.bot.send_message(update.effective_chat.id,
-            "Введіть номер у форматі: <b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML)
-    if s.awaiting=="addr":
-        s.address=txt; s.awaiting=None; render_phone(update,ctx,False); return
-    if s.awaiting=="phone":
-        masked = format_phone_mask(txt)
-        if not masked:
-            return ctx.bot.send_message(update.effective_chat.id,
-                "❗️ Невірний формат. Спробуйте ще раз у вигляді:\n"
-                "<b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML)
-        s.phone=masked; s.awaiting=None; render_home(update,ctx,False); return
-    if s.awaiting=="comment":
-        s.comment=txt; s.awaiting=None
-        ctx.bot.send_message(update.effective_chat.id, "Коментар додано ✅")
-        ctx.bot.send_message(update.effective_chat.id, summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
-        push(s,"summary"); return
-    ctx.bot.send_message(update.effective_chat.id, "Надішліть /start або /menu для меню, або користуйтесь кнопками.")
+def cmd_ping(update:Update, ctx:CallbackContext):
+    ctx.bot.send_message(update.effective_chat.id, "pong")
 
 def ack(update:Update):
     try: update.callback_query.answer()
@@ -280,21 +261,22 @@ def ack(update:Update):
 
 def on_ship(update:Update, ctx:CallbackContext):
     ack(update); s=S(ctx)
-    if update.callback_query.data=="ship:delivery":
-        s.delivery="delivery"; render_addr(update,ctx)
-    else:
-        s.delivery="pickup"; render_phone(update,ctx)
+    data = update.callback_query.data
+    if data=="ship:delivery":
+        s.delivery="delivery"; s.awaiting=None; render_addr(update,ctx)
+    elif data=="ship:pickup":
+        s.delivery="pickup"; s.awaiting=None; render_phone(update,ctx)
 
 def on_nav(update:Update, ctx:CallbackContext):
     ack(update); s=S(ctx); data=update.callback_query.data.split(":",1)[1]
     if data=="back":
-        if not s.history: return render_delivery(update,ctx)
+        if not s.history: return send_delivery_screen(ctx, update.effective_chat.id)
         s.history.pop()
-        if not s.history: return render_delivery(update,ctx)
+        if not s.history: return send_delivery_screen(ctx, update.effective_chat.id)
         tag=s.history[-1]
-        if tag=="delivery": return render_delivery(update,ctx)
+        if tag=="delivery": return send_delivery_screen(ctx, update.effective_chat.id)
         if tag=="addr": return render_addr(update,ctx)
-        if tag=="phone_wait": return render_phone(update,ctx)
+        if tag=="phone": return render_phone(update,ctx)
         if tag=="home": return render_home(update,ctx)
         if tag.endswith("_select"):
             scope=tag.split("_")[0]
@@ -313,7 +295,7 @@ def on_nav(update:Update, ctx:CallbackContext):
         if tag=="summary": return render_summary(update,ctx)
         return render_home(update,ctx)
     if data=="restart":
-        ctx.user_data["S"]=Session(); return render_delivery(update,ctx)
+        ctx.user_data["S"]=Session(); return send_delivery_screen(ctx, update.effective_chat.id)
     if data=="shawarma":
         s.sel_sw=set(); s.q_sw=[]; s.i_sw=0; return render_select(update,ctx,"sw", s.sel_sw, SHAWARMA)
     if data=="sides":
@@ -351,6 +333,7 @@ def on_sw(update:Update, ctx:CallbackContext):
         push(S(ctx),"add_yesno")
         return ctx.bot.send_message(update.effective_chat.id, "Чи потрібно щось додати в шаурму?", reply_markup=kb_yesno("add"))
     return on_group(update,ctx,"sw", S(ctx).sel_sw, S(ctx).q_sw, "i_sw", S(ctx).b_sw, SHAWARMA, after)
+
 def on_add_yesno(update:Update, ctx:CallbackContext):
     ack(update); s=S(ctx); _,ans=update.callback_query.data.split(":")
     push(s,"add_yesno")
@@ -358,18 +341,24 @@ def on_add_yesno(update:Update, ctx:CallbackContext):
         s.sel_add=set(); s.q_add=[]; s.i_add=0
         return render_select(update,ctx,"add", s.sel_add, ADDONS)
     return render_comment(update,ctx)
+
 def on_add(update:Update, ctx:CallbackContext):
     return on_group(update,ctx,"add", S(ctx).sel_add, S(ctx).q_add, "i_add", S(ctx).b_add, ADDONS, lambda: render_comment(update,ctx))
+
 def on_sd(update:Update, ctx:CallbackContext):
     return on_group(update,ctx,"sd", S(ctx).sel_sd, S(ctx).q_sd, "i_sd", S(ctx).b_sd, SIDES, lambda: render_home(update,ctx))
+
 def on_ds(update:Update, ctx:CallbackContext):
     return on_group(update,ctx,"ds", S(ctx).sel_ds, S(ctx).q_ds, "i_ds", S(ctx).b_ds, DESSERTS, lambda: render_home(update,ctx))
+
 def on_dr(update:Update, ctx:CallbackContext):
     return on_group(update,ctx,"dr", S(ctx).sel_dr, S(ctx).q_dr, "i_dr", S(ctx).b_dr, DRINKS, lambda: render_home(update,ctx))
+
 def on_cart(update:Update, ctx:CallbackContext):
     ack(update); s=S(ctx)
     update.callback_query.edit_message_text(summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
     push(s,"summary")
+
 def on_order(update:Update, ctx:CallbackContext):
     ack(update)
     if update.callback_query.data=="order:confirm":
@@ -381,6 +370,7 @@ def on_order(update:Update, ctx:CallbackContext):
             admin_msg_id=m.message_id
         m2=ctx.bot.send_message(update.effective_chat.id, f"{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
         ORD(ctx)[o]={"user_chat_id":update.effective_chat.id, "user_status_msg_id":m2.message_id, "admin_msg_id":admin_msg_id or 0, "summary":summ}
+
 def on_admin_status(update:Update, ctx:CallbackContext):
     ack(update)
     if update.effective_user.id!=ADMIN_CHAT_ID:
@@ -402,6 +392,7 @@ def on_admin_status(update:Update, ctx:CallbackContext):
                 ctx.bot.send_sticker(reg["user_chat_id"], DONE_STICKER_FILE_ID)
         except Exception as e:
             log.warning("notify fail: %s", e)
+
 def on_adminmsg(update:Update, ctx:CallbackContext):
     ack(update)
     if update.effective_user.id!=ADMIN_CHAT_ID:
@@ -409,19 +400,80 @@ def on_adminmsg(update:Update, ctx:CallbackContext):
     _,o=update.callback_query.data.split(":",1); set_admin_dm(ctx, ADMIN_CHAT_ID, o)
     update.callback_query.answer("Напишіть текст повідомлення клієнту…")
     update.callback_query.edit_message_reply_markup(kb_admin(o))
+
 def on_usermsg(update:Update, ctx:CallbackContext):
     ack(update); _,o=update.callback_query.data.split(":",1); set_user_dm(ctx, update.effective_chat.id, o)
     update.callback_query.answer("Напишіть текст адміну…")
     update.callback_query.edit_message_reply_markup(kb_user(o))
 
+def on_contact(update:Update, ctx:CallbackContext):
+    s=S(ctx); c:Contact=update.message.contact
+    phone = c.phone_number or ""
+    if phone.startswith("+"):
+        phone = phone[1:]
+    if phone.startswith("380"):
+        phone = phone
+    masked = format_phone_mask("+"+phone if not phone.startswith("+") else phone)
+    if not masked:
+        return ctx.bot.send_message(update.effective_chat.id, "Не вдалося прочитати номер. Введіть вручну за маскою.")
+    s.phone = masked; s.awaiting=None
+    ctx.bot.send_message(update.effective_chat.id, f"Телефон збережено: {masked}", reply_markup=ReplyKeyboardRemove())
+    render_home(update,ctx)
+
+def on_text(update:Update, ctx:CallbackContext):
+    ensure_globals(ctx)
+    if update.effective_user and update.effective_user.id==ADMIN_CHAT_ID:
+        order_no = pop_admin_dm(ctx, ADMIN_CHAT_ID)
+        if order_no:
+            reg = ORD(ctx).get(order_no)
+            if reg and reg.get("user_chat_id"):
+                ctx.bot.send_message(reg["user_chat_id"], f"📩 Повідомлення від адміністратора по {order_no}:\n\n{update.message.text}")
+                return ctx.bot.send_message(update.effective_chat.id, "Надіслано клієнту ✅")
+
+    order_no = pop_user_dm(ctx, update.effective_chat.id)
+    if order_no and ADMIN_CHAT_ID:
+        u = update.effective_user
+        ctx.bot.send_message(ADMIN_CHAT_ID, f"📨 Повідомлення від клієнта по {order_no}\n👤 {u.full_name} (id {u.id})\n\n{update.message.text}")
+        return ctx.bot.send_message(update.effective_chat.id, "Надіслано адміну ✅")
+
+    s=S(ctx); txt=(update.message.text or "").strip()
+
+    if s.awaiting=="ship":
+        if txt==SHIP_DELIVERY:
+            s.delivery="delivery"; s.awaiting=None; return render_addr(update,ctx)
+        if txt==SHIP_PICKUP:
+            s.delivery="pickup"; s.awaiting=None; return render_phone(update,ctx)
+
+    if txt==PHONE_MANUAL_BTN and s.awaiting=="phone":
+        return ctx.bot.send_message(update.effective_chat.id,
+            "Введіть номер у форматі: <b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML)
+
+    if s.awaiting=="addr":
+        s.address=txt; s.awaiting=None; return render_phone(update,ctx)
+
+    if s.awaiting=="phone":
+        masked = format_phone_mask(txt)
+        if not masked:
+            return ctx.bot.send_message(update.effective_chat.id,
+                "❗️ Невірний формат. Спробуйте ще раз у вигляді:\n<b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML)
+        s.phone=masked; s.awaiting=None; return render_home(update,ctx)
+
+    if s.awaiting=="comment":
+        s.comment=txt; s.awaiting=None
+        ctx.bot.send_message(update.effective_chat.id, "Коментар додано ✅", reply_markup=ReplyKeyboardRemove())
+        push(s,"summary")
+        return ctx.bot.send_message(update.effective_chat.id, summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
+
+    return ctx.bot.send_message(update.effective_chat.id, "Надішліть /start або користуйтесь кнопками.")
+
 def main():
     up=Updater(TOKEN, use_context=True); dp=up.dispatcher
     dp.add_handler(CommandHandler("start", cmd_start))
     dp.add_handler(CommandHandler("menu", cmd_menu))
-    dp.add_handler(CommandHandler("help", cmd_help))
+    dp.add_handler(CommandHandler("ping", cmd_ping))
     dp.add_handler(CallbackQueryHandler(on_ship, pattern=r"^ship:"))
-    dp.add_handler(CallbackQueryHandler(on_nav, pattern=r"^nav:"))
-    dp.add_handler(CallbackQueryHandler(on_sw,  pattern=r"^sw:"))
+    dp.add_handler(CallbackQueryHandler(on_nav,  pattern=r"^nav:"))
+    dp.add_handler(CallbackQueryHandler(on_sw,   pattern=r"^sw:"))
     dp.add_handler(CallbackQueryHandler(on_add_yesno, pattern=r"^add:(yes|no)$"))
     dp.add_handler(CallbackQueryHandler(on_add, pattern=r"^add:(toggle|continue|qty):"))
     dp.add_handler(CallbackQueryHandler(on_sd, pattern=r"^sd:"))
@@ -434,6 +486,12 @@ def main():
     dp.add_handler(CallbackQueryHandler(on_usermsg, pattern=r"^usermsg:"))
     dp.add_handler(MessageHandler(Filters.contact, on_contact))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, on_text))
+
+    if os.environ.get("RUN_SELFTEST")=="1":
+        assert kb_ship_inline().inline_keyboard[0][0].text==SHIP_DELIVERY
+        assert kb_ship_reply().keyboard[0][0]==SHIP_DELIVERY
+        log.info("SELFTEST OK: keyboards constructed")
+
     log.info("Starting polling (PTB 13.x)…")
     up.start_polling(drop_pending_updates=True)
     up.idle()

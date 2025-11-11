@@ -1,4 +1,0 @@
-python-telegram-bot>=13,<14
-urllib3<2
-six
-certifi

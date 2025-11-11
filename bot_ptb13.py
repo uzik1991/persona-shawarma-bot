@@ -153,29 +153,27 @@ def push(s:Session, tag:str):
     if not s.history or s.history[-1]!=tag:
         s.history.append(tag)
 
-def render_delivery(update:Update, ctx:CallbackContext):
+def send_delivery_screen(ctx:CallbackContext, chat_id:int):
     s = S(ctx); s.history=[]; push(s,"delivery")
     text = "Обери: доставка або самовивіз."
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🚚 Доставка","ship:delivery")],
         [InlineKeyboardButton("🏃‍♀️ Самовивіз","ship:pickup")]
     ])
-    if update.message:
-        update.message.reply_text(text, reply_markup=kb)
-    else:
-        update.effective_chat.send_message(text, reply_markup=kb)
+    ctx.bot.send_message(chat_id=chat_id, text=text, reply_markup=kb)
+
+def render_delivery(update:Update, ctx:CallbackContext):
+    send_delivery_screen(ctx, update.effective_chat.id)
 
 def render_addr(update:Update, ctx:CallbackContext):
     s=S(ctx); s.awaiting="addr"; push(s,"addr")
-    update.effective_chat.send_message("Введіть адресу доставки:", reply_markup=ReplyKeyboardRemove())
-    update.effective_chat.send_message(" ", reply_markup=kb_back())
+    ctx.bot.send_message(update.effective_chat.id, "Введіть адресу доставки:", reply_markup=ReplyKeyboardRemove())
+    ctx.bot.send_message(update.effective_chat.id, " ", reply_markup=kb_back())
 def render_phone(update:Update, ctx:CallbackContext, replace=True):
     s=S(ctx); s.awaiting="phone"; push(s,"phone_wait")
-    f = (update.callback_query.edit_message_text
-         if replace and update.callback_query else
-         update.effective_chat.send_message)
-    f("Поділитись контактом або ввести номер вручну?", reply_markup=kb_back())
-    update.effective_chat.send_message(
+    ctx.bot.send_message(update.effective_chat.id, "Поділитись контактом або ввести номер вручну?", reply_markup=kb_back())
+    ctx.bot.send_message(
+        update.effective_chat.id,
         "Натисни «Поділитись контактом» або введи у форматі:\n"
         "<b>+38 (xxx) - xxx - xx - xx</b>\nНапр.: +38 (067) - 123 - 45 - 67",
         parse_mode=ParseMode.HTML,
@@ -183,20 +181,20 @@ def render_phone(update:Update, ctx:CallbackContext, replace=True):
     )
 def render_home(update:Update, ctx:CallbackContext, replace=True):
     s=S(ctx); push(s,"home")
-    update.effective_chat.send_message("Що бажаєте сьогодні?", reply_markup=kb_main())
+    ctx.bot.send_message(update.effective_chat.id, "Що бажаєте сьогодні?", reply_markup=kb_main())
 def render_select(update:Update, ctx:CallbackContext, scope:str, selected:Set[str], data:Dict):
     push(S(ctx), f"{scope}_select")
-    update.effective_chat.send_message("Оберіть позиції (можна кілька):", reply_markup=kb_check(data, selected, scope))
+    ctx.bot.send_message(update.effective_chat.id, "Оберіть позиції (можна кілька):", reply_markup=kb_check(data, selected, scope))
 def render_qty(update:Update, ctx:CallbackContext, scope:str, seq:List[str], idx:int):
     push(S(ctx), f"{scope}_qty:{idx}")
     item_id = seq[idx]
     data = {"sw":SHAWARMA,"add":ADDONS,"sd":SIDES,"ds":DESSERTS,"dr":DRINKS}[scope]
     item = data[item_id]
-    update.effective_chat.send_message(f"Скільки «{item['name']}»?", reply_markup=kb_qty(scope,item_id))
+    ctx.bot.send_message(update.effective_chat.id, f"Скільки «{item['name']}»?", reply_markup=kb_qty(scope,item_id))
 def render_comment(update:Update, ctx:CallbackContext):
     s=S(ctx); s.awaiting="comment"; push(s,"comment")
-    update.effective_chat.send_message("Додати коментар? Надішліть текст або «Пропустити».", reply_markup=ReplyKeyboardRemove())
-    update.effective_chat.send_message(" ", reply_markup=kb_comment())
+    ctx.bot.send_message(update.effective_chat.id, "Додати коментар? Надішліть текст або «Пропустити».", reply_markup=ReplyKeyboardRemove())
+    ctx.bot.send_message(update.effective_chat.id, " ", reply_markup=kb_comment())
 def summarize(s:Session)->str:
     total=0; lines=["Замовлення:"]
     for k,v in s.b_sw.items(): lines.append(f"Шаурма {SHAWARMA[k]['name']} — {v} шт"); total+=SHAWARMA[k]['price']*v
@@ -215,25 +213,25 @@ def summarize(s:Session)->str:
     return "Номер замовлення: "+s.order_no+"\n\n" + "\n".join(lines)
 def render_summary(update:Update, ctx:CallbackContext):
     s=S(ctx); push(s,"summary")
-    update.effective_chat.send_message(summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
+    ctx.bot.send_message(update.effective_chat.id, summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
 
 def cmd_start(update:Update, ctx:CallbackContext):
     ctx.user_data["S"]=Session()
     u=update.effective_user
-    update.message.reply_text(f"Вітаю, {u.full_name}! 😊")
-    render_delivery(update,ctx)
+    ctx.bot.send_message(update.effective_chat.id, f"Вітаю, {u.full_name}! 😊")
+    send_delivery_screen(ctx, update.effective_chat.id)
 def cmd_menu(update:Update, ctx:CallbackContext):
-    render_delivery(update, ctx)
+    send_delivery_screen(ctx, update.effective_chat.id)
 def cmd_help(update:Update, ctx:CallbackContext):
-    update.message.reply_text("Команди: /start, /menu")
+    ctx.bot.send_message(update.effective_chat.id, "Команди: /start, /menu")
 
 def on_contact(update:Update, ctx:CallbackContext):
     s=S(ctx); c:Contact=update.message.contact
     masked = format_phone_mask(c.phone_number or "")
     if not masked:
-        return update.message.reply_text("Не вдалося прочитати номер. Введіть вручну за маскою.")
+        return ctx.bot.send_message(update.effective_chat.id, "Не вдалося прочитати номер. Введіть вручну за маскою.")
     s.phone = masked; s.awaiting=None
-    update.message.reply_text(f"Телефон збережено: {masked}")
+    ctx.bot.send_message(update.effective_chat.id, f"Телефон збережено: {masked}")
     render_home(update,ctx,False)
 
 def on_text(update:Update, ctx:CallbackContext):
@@ -245,7 +243,7 @@ def on_text(update:Update, ctx:CallbackContext):
             if reg and reg.get("user_chat_id"):
                 ctx.bot.send_message(reg["user_chat_id"],
                     f"📩 Повідомлення від адміністратора по {order_no}:\n\n{update.message.text}")
-                update.message.reply_text("Надіслано клієнту ✅")
+                ctx.bot.send_message(update.effective_chat.id, "Надіслано клієнту ✅")
                 return
     ou = update.effective_chat.id
     order_no = pop_user_dm(ctx, ou)
@@ -254,30 +252,27 @@ def on_text(update:Update, ctx:CallbackContext):
         ctx.bot.send_message(ADMIN_CHAT_ID,
             f"📨 Повідомлення від клієнта по {order_no}\n"
             f"👤 {u.full_name} (id {u.id})\n\n{update.message.text}")
-        update.message.reply_text("Надіслано адміну ✅")
+        ctx.bot.send_message(update.effective_chat.id, "Надіслано адміну ✅")
         return
     s=S(ctx); txt=(update.message.text or "").strip()
     if txt==PHONE_MANUAL_BTN and s.awaiting=="phone":
-        update.message.reply_text(
-            "Введіть номер у форматі: <b>+38 (xxx) - xxx - xx - xx</b>",
-            parse_mode=ParseMode.HTML
-        ); return
+        return ctx.bot.send_message(update.effective_chat.id,
+            "Введіть номер у форматі: <b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML)
     if s.awaiting=="addr":
         s.address=txt; s.awaiting=None; render_phone(update,ctx,False); return
     if s.awaiting=="phone":
         masked = format_phone_mask(txt)
         if not masked:
-            update.message.reply_text(
+            return ctx.bot.send_message(update.effective_chat.id,
                 "❗️ Невірний формат. Спробуйте ще раз у вигляді:\n"
-                "<b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML
-            ); return
+                "<b>+38 (xxx) - xxx - xx - xx</b>", parse_mode=ParseMode.HTML)
         s.phone=masked; s.awaiting=None; render_home(update,ctx,False); return
     if s.awaiting=="comment":
         s.comment=txt; s.awaiting=None
-        update.message.reply_text("Коментар додано ✅")
-        update.effective_chat.send_message(summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
+        ctx.bot.send_message(update.effective_chat.id, "Коментар додано ✅")
+        ctx.bot.send_message(update.effective_chat.id, summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
         push(s,"summary"); return
-    update.message.reply_text("Надішліть /start або /menu для меню, або користуйтесь кнопками.")
+    ctx.bot.send_message(update.effective_chat.id, "Надішліть /start або /menu для меню, або користуйтесь кнопками.")
 
 def ack(update:Update):
     try: update.callback_query.answer()
@@ -354,7 +349,7 @@ def on_group(update:Update, ctx:CallbackContext, scope:str, sel:Set[str], seq:Li
 def on_sw(update:Update, ctx:CallbackContext):
     def after():
         push(S(ctx),"add_yesno")
-        return update.effective_chat.send_message("Чи потрібно щось додати в шаурму?", reply_markup=kb_yesno("add"))
+        return ctx.bot.send_message(update.effective_chat.id, "Чи потрібно щось додати в шаурму?", reply_markup=kb_yesno("add"))
     return on_group(update,ctx,"sw", S(ctx).sel_sw, S(ctx).q_sw, "i_sw", S(ctx).b_sw, SHAWARMA, after)
 def on_add_yesno(update:Update, ctx:CallbackContext):
     ack(update); s=S(ctx); _,ans=update.callback_query.data.split(":")
@@ -384,7 +379,7 @@ def on_order(update:Update, ctx:CallbackContext):
             u=update.effective_user
             m=ctx.bot.send_message(ADMIN_CHAT_ID, f"🆕 Нове замовлення {o}\n🕒 {ts}\n👤 Клієнт: {u.full_name} (id {u.id})\n\n{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_admin(o))
             admin_msg_id=m.message_id
-        m2=update.effective_chat.send_message(f"{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
+        m2=ctx.bot.send_message(update.effective_chat.id, f"{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
         ORD(ctx)[o]={"user_chat_id":update.effective_chat.id, "user_status_msg_id":m2.message_id, "admin_msg_id":admin_msg_id or 0, "summary":summ}
 def on_admin_status(update:Update, ctx:CallbackContext):
     ack(update)

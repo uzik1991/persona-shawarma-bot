@@ -154,16 +154,17 @@ def push(s:Session, tag:str):
         s.history.append(tag)
 
 def render_delivery(update:Update, ctx:CallbackContext):
-    s=S(ctx); s.history=[]; push(s,"delivery")
+    s = S(ctx); s.history=[]; push(s,"delivery")
+    text = "Обери: доставка або самовивіз."
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚚 Доставка","ship:delivery")],
+        [InlineKeyboardButton("🏃‍♀️ Самовивіз","ship:pickup")]
+    ])
     if update.message:
-        update.message.reply_text("Вітаю! Оберіть спосіб отримання:", reply_markup=None)
-    update.effective_chat.send_message(
-        "Обери: доставка або самовивіз.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚚 Доставка","ship:delivery")],
-            [InlineKeyboardButton("🏃‍♀️ Самовивіз","ship:pickup")]
-        ])
-    )
+        update.message.reply_text(text, reply_markup=kb)
+    else:
+        update.effective_chat.send_message(text, reply_markup=kb)
+
 def render_addr(update:Update, ctx:CallbackContext):
     s=S(ctx); s.awaiting="addr"; push(s,"addr")
     update.effective_chat.send_message("Введіть адресу доставки:", reply_markup=ReplyKeyboardRemove())
@@ -221,8 +222,10 @@ def cmd_start(update:Update, ctx:CallbackContext):
     u=update.effective_user
     update.message.reply_text(f"Вітаю, {u.full_name}! 😊")
     render_delivery(update,ctx)
+def cmd_menu(update:Update, ctx:CallbackContext):
+    render_delivery(update, ctx)
 def cmd_help(update:Update, ctx:CallbackContext):
-    update.message.reply_text("Команди: /start")
+    update.message.reply_text("Команди: /start, /menu")
 
 def on_contact(update:Update, ctx:CallbackContext):
     s=S(ctx); c:Contact=update.message.contact
@@ -274,7 +277,7 @@ def on_text(update:Update, ctx:CallbackContext):
         update.message.reply_text("Коментар додано ✅")
         update.effective_chat.send_message(summarize(s), reply_markup=kb_summary(), disable_web_page_preview=True)
         push(s,"summary"); return
-    update.message.reply_text("Надішліть /start для меню або користуйтесь кнопками.")
+    update.message.reply_text("Надішліть /start або /menu для меню, або користуйтесь кнопками.")
 
 def ack(update:Update):
     try: update.callback_query.answer()
@@ -419,6 +422,7 @@ def on_usermsg(update:Update, ctx:CallbackContext):
 def main():
     up=Updater(TOKEN, use_context=True); dp=up.dispatcher
     dp.add_handler(CommandHandler("start", cmd_start))
+    dp.add_handler(CommandHandler("menu", cmd_menu))
     dp.add_handler(CommandHandler("help", cmd_help))
     dp.add_handler(CallbackQueryHandler(on_ship, pattern=r"^ship:"))
     dp.add_handler(CallbackQueryHandler(on_nav, pattern=r"^nav:"))

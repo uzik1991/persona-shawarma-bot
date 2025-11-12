@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Set
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, ParseMode
+    ReplyKeyboardMarkup, ReplyKeyboardRemove, ParseMode
 )
 from telegram.ext import (
     Updater, CallbackContext, CommandHandler, CallbackQueryHandler,
@@ -188,12 +188,12 @@ def format_phone_mask(text:str)->Optional[str]:
 
 def render_phone(update:Update, ctx:'CallbackContext'):
     s=S(ctx); s.awaiting="phone"; push(s,"phone")
-    ctx.bot.send_message(update.effective_chat.id,
-        "Введіть номер у форматі:
-<b>+38 (0XX)-XXX-XX-XX</b>
-Приклад: +38 (067)-123-45-67",
+    ctx.bot.send_message(
+        update.effective_chat.id,
+        "Введіть номер у форматі:\n<b>+38 (0XX)-XXX-XX-XX</b>\nПриклад: +38 (067)-123-45-67",
         parse_mode=ParseMode.HTML,
-        reply_markup=kb_back())
+        reply_markup=kb_back()
+    )
 
 def render_home(update:Update, ctx:'CallbackContext'):
     s=S(ctx); push(s,"home")
@@ -229,10 +229,7 @@ def summarize(s:Session)->str:
     if s.comment: lines.append(f"Коментар: {s.comment}")
     lines.append(""); lines.append(f"Ціна: {total} грн")
     s.order_no = s.order_no or next_order_no()
-    return "Номер замовлення: "+s.order_no+"
-
-" + "
-".join(lines)
+    return "Номер замовлення: "+s.order_no+"\n\n" + "\n".join(lines)
 
 def render_summary(update:Update, ctx:'CallbackContext'):
     s=S(ctx); push(s,"summary")
@@ -359,17 +356,9 @@ def on_order(update:Update, ctx:'CallbackContext'):
         admin_msg_id=None
         if ADMIN_CHAT_ID:
             u=update.effective_user
-            m=ctx.bot.send_message(ADMIN_CHAT_ID, f"🆕 Нове замовлення {o}
-🕒 {ts}
-👤 Клієнт: {u.full_name} (id {u.id})
-
-{summ}
-
-Статус: 🟡 Нове — {ts}", reply_markup=kb_admin(o))
+            m=ctx.bot.send_message(ADMIN_CHAT_ID, f"🆕 Нове замовлення {o}\n🕒 {ts}\n👤 Клієнт: {u.full_name} (id {u.id})\n\n{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_admin(o))
             admin_msg_id=m.message_id
-        m2=ctx.bot.send_message(update.effective_chat.id, f"{summ}
-
-Статус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
+        m2=ctx.bot.send_message(update.effective_chat.id, f"{summ}\n\nСтатус: 🟡 Нове — {ts}", reply_markup=kb_user(o))
         ORD(ctx)[o]={"user_chat_id":update.effective_chat.id, "user_status_msg_id":m2.message_id, "admin_msg_id":admin_msg_id or 0, "summary":summ}
 
 def on_admin_status(update:Update, ctx:'CallbackContext'):
@@ -379,19 +368,13 @@ def on_admin_status(update:Update, ctx:'CallbackContext'):
     _,o,action=update.callback_query.data.split(":",2)
     mp={"accept":"🟢 Прийнято","cooking":"👨‍🍳 Готуємо","courier":"🚴 Курʼєр в дорозі","done":"✅ Готово"}
     st=mp.get(action,"🟡 Нове"); ts=now_str()
-    base=update.callback_query.message.text.split("
-
-Статус:",1)[0]
+    base=update.callback_query.message.text.split("\n\nСтатус:",1)[0]
     chat_on = ADMIN_FOR(ctx).get(ADMIN_CHAT_ID)==o or USER_FOR(ctx).get(ORD(ctx).get(o,{}).get("user_chat_id",0))==o
-    update.callback_query.edit_message_text(base+f"
-
-Статус: {st} — {ts}", reply_markup=kb_admin(o, chat_on=chat_on))
+    update.callback_query.edit_message_text(base+f"\n\nСтатус: {st} — {ts}", reply_markup=kb_admin(o, chat_on=chat_on))
     reg=ORD(ctx).get(o)
     if reg:
         try:
-            ctx.bot.edit_message_text(chat_id=reg["user_chat_id"], message_id=reg["user_status_msg_id"], text=f"{reg['summary']}
-
-Статус: {st} — {ts}", reply_markup=kb_user(o, chat_on=chat_on))
+            ctx.bot.edit_message_text(chat_id=reg["user_chat_id"], message_id=reg["user_status_msg_id"], text=f"{reg['summary']}\n\nСтатус: {st} — {ts}", reply_markup=kb_user(o, chat_on=chat_on))
         except Exception as e:
             log.warning("edit user msg fail: %s", e)
         try:
@@ -484,15 +467,19 @@ def on_text(update:Update, ctx:'CallbackContext'):
         s.address=txt; s.awaiting=None; return render_phone(update,ctx)
 
     if s.awaiting=="phone":
-        if re.match(r"^\+38\s*\(0\d{2}\)-\d{3}-\d{2}-\d{2}$", txt):
+        # Чітка перевірка по масці + можливість автоматичного форматування
+        if re.match(r'^\+38\s*\(0\d{2}\)-\d{3}-\d{2}-\d{2}$', txt):
             s.phone=txt; s.awaiting=None
             return render_home(update,ctx)
         masked = format_phone_mask(txt)
         if masked:
             s.phone=masked; s.awaiting=None
             return render_home(update,ctx)
-        return ctx.bot.send_message(update.effective_chat.id,
-            "❗️ Невірний формат. Спробуйте ще раз у вигляді:\n<b>+38 (0XX)-XXX-XX-XX</b>", parse_mode=ParseMode.HTML)
+        return ctx.bot.send_message(
+            update.effective_chat.id,
+            "❗️ Невірний формат. Спробуйте ще раз у вигляді:\n<b>+38 (0XX)-XXX-XX-XX</b>",
+            parse_mode=ParseMode.HTML
+        )
 
     if s.awaiting=="comment":
         s.comment=txt; s.awaiting=None
